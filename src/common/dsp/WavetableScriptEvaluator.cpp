@@ -27,6 +27,7 @@ namespace Surge
 {
 namespace WavetableScript
 {
+
 std::vector<float> evaluateScriptAtFrame(SurgeStorage *storage, const std::string &eqn,
                                          int resolution, int frame, int nFrames)
 {

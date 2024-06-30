@@ -1001,7 +1001,7 @@ struct WavetablePreviewComponent : juce::Component
         g.strokePath(p, juce::PathStrokeType(1.0));
     }
 
-    int frameNumber = 0;
+    int frameNumber;
     std::vector<float> points;
 
     SurgeStorage *storage;
@@ -1112,7 +1112,8 @@ void WavetableEquationEditor::rerenderFromUIState()
 {
     auto resi = resolution->getSelectedId();
     auto nfr = std::atoi(frames->getText().toRawUTF8());
-    auto cfr = (int)round((nfr - 1) * currentFrame->getValue() / 10.0);
+    auto cfr =
+        (int)round((nfr - 1) * currentFrame->getValue() / 10.0); // map slider to 0 .. nFrames - 1
 
     auto respt = 32;
     for (int i = 1; i < resi; ++i)
@@ -1120,7 +1121,7 @@ void WavetableEquationEditor::rerenderFromUIState()
 
     renderer->points = Surge::WavetableScript::evaluateScriptAtFrame(
         storage, mainDocument->getAllContent().toStdString(), respt, cfr, nfr);
-    renderer->frameNumber = cfr + 1;
+    renderer->frameNumber = cfr + 1; // send frame value + 1 to graph from first frame
     renderer->repaint();
 }
 

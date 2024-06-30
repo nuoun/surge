@@ -593,7 +593,7 @@ void OscillatorWaveformDisplay::populateMenu(juce::PopupMenu &contextMenu, int s
 
     auto owts = [this]() {
         if (sge)
-            sge->showOverlay(SurgeGUIEditor::WT_SCRIPTING_EDITOR);
+            sge->showOverlay(SurgeGUIEditor::WTSCRIPT_EDITOR);
     };
 
     contextMenu.addItem(Surge::GUI::toOSCase("Wavetable Script Editor..."), owts);
