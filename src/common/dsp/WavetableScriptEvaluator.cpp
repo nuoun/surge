@@ -332,6 +332,7 @@ void LuaWTEvaluator::setStorage(SurgeStorage *s)
     details->storage = s;
 #endif
 }
+
 void LuaWTEvaluator::setScript(const std::string &e)
 {
 #if HAS_LUA
@@ -342,6 +343,7 @@ void LuaWTEvaluator::setScript(const std::string &e)
     }
 #endif
 }
+
 void LuaWTEvaluator::setResolution(size_t r)
 {
 #if HAS_LUA
@@ -352,6 +354,7 @@ void LuaWTEvaluator::setResolution(size_t r)
     }
 #endif
 }
+
 void LuaWTEvaluator::setFrameCount(size_t n)
 {
 #if HAS_LUA

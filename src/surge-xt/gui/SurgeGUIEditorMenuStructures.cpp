@@ -36,6 +36,7 @@
 
 #include "fmt/core.h"
 
+#include "widgets/MenuCustomComponents.h"
 #include "widgets/ModulatableSlider.h"
 #include "widgets/PatchSelector.h"
 #include "widgets/XMLConfiguredMenus.h"
@@ -78,35 +79,18 @@ juce::PopupMenu SurgeGUIEditor::makeLfoMenu(const juce::Point<int> &where)
         break;
     }
 
-    auto msurl = SurgeGUIEditor::helpURLForSpecial("lfo-presets");
-    auto hurl = SurgeGUIEditor::fullyResolvedHelpURL(msurl);
-
     auto lfoSubMenu = juce::PopupMenu();
 
-    addHelpHeaderTo("LFO Presets", hurl, lfoSubMenu);
-    lfoSubMenu.addSeparator();
-
-    lfoSubMenu.addItem(
-        Surge::GUI::toOSCase("Save " + what + " Preset As..."), [this, currentLfoId, what]() {
-            promptForMiniEdit(
-                "", "Enter the preset name:", what + " Preset Name", juce::Point<int>{},
-                [this, currentLfoId](const std::string &s) {
-                    this->synth->storage.modulatorPreset->savePresetToUser(
-                        string_to_path(s), &(this->synth->storage), current_scene, currentLfoId);
-                },
-                lfoMenuButton);
-        });
-
-    auto presetCategories = this->synth->storage.modulatorPreset->getPresets(&(synth->storage));
-    if (!presetCategories.empty())
-    {
-        lfoSubMenu.addSeparator();
-    }
-
-    std::function<void(juce::PopupMenu & m, const Surge::Storage::ModulatorPreset::Category &cat)>
+    // Recursive category traversal
+    std::function<void(juce::PopupMenu &, const Surge::Storage::ModulatorPreset::Category &,
+                       const std::vector<Surge::Storage::ModulatorPreset::Category> &)>
         recurseCat;
-    recurseCat = [this, currentLfoId, presetCategories, &recurseCat](
-                     juce::PopupMenu &m, const Surge::Storage::ModulatorPreset::Category &cat) {
+
+    recurseCat = [this, currentLfoId, &recurseCat](
+                     juce::PopupMenu &m, const Surge::Storage::ModulatorPreset::Category &cat,
+                     const std::vector<Surge::Storage::ModulatorPreset::Category> &categories)
+
+    {
         for (const auto &p : cat.presets)
         {
             auto action = [this, p, currentLfoId]() {
@@ -173,7 +157,7 @@ juce::PopupMenu SurgeGUIEditor::makeLfoMenu(const juce::Point<int> &where)
         }
         else
         {
-            for (const auto &sc : presetCategories)
+            for (const auto &sc : categories)
             {
                 if (sc.parentPath == cat.path)
                 {
@@ -181,32 +165,95 @@ juce::PopupMenu SurgeGUIEditor::makeLfoMenu(const juce::Point<int> &where)
                         m.addSeparator();
                     haveD = true;
                     juce::PopupMenu subMenu;
-                    recurseCat(subMenu, sc);
+                    recurseCat(subMenu, sc, categories);
                     m.addSubMenu(sc.name, subMenu);
                 }
             }
         }
     };
 
-    for (auto tlc : presetCategories)
+    // Helper to add a list of categories to the menu
+    auto addCategoryList =
+        [&](juce::PopupMenu &menu,
+            const std::vector<Surge::Storage::ModulatorPreset::Category> &categories) {
+            if (categories.empty())
+                return;
+
+            // menu.addSeparator();
+
+            for (auto &tlc : categories)
+            {
+                if (tlc.path.empty())
+                {
+                    recurseCat(menu, tlc, categories);
+                    menu.addSeparator();
+                }
+                else if (tlc.parentPath.empty())
+                {
+                    juce::PopupMenu sm;
+                    recurseCat(sm, tlc, categories);
+                    menu.addSubMenu(tlc.name, sm);
+                }
+            }
+        };
+
+    // Factory presets
+    auto factoryPresetCategories = this->synth->storage.modulatorPreset->getPresets(
+        &(synth->storage), Surge::Storage::ModulatorPreset::PresetScanMode::FactoryOnly);
+    if (!factoryPresetCategories.empty())
     {
-        if (tlc.path.empty())
-        {
-            // We have presets in the root! Don't recurse forever and put them in the root
-            recurseCat(lfoSubMenu, tlc);
-            lfoSubMenu.addSeparator();
-        }
-        else if (tlc.parentPath.empty())
-        {
-            juce::PopupMenu sm;
-            recurseCat(sm, tlc);
-            lfoSubMenu.addSubMenu(tlc.name, sm);
-        }
+
+        Surge::Widgets::MenuCenteredBoldLabel::addToMenuAsSectionHeader(lfoSubMenu,
+                                                                        "FACTORY PRESETS");
+        addCategoryList(lfoSubMenu, factoryPresetCategories);
     }
 
+    // User presets
+    auto userPresetCategories = this->synth->storage.modulatorPreset->getPresets(
+        &(synth->storage), Surge::Storage::ModulatorPreset::PresetScanMode::UserOnly);
+    if (!factoryPresetCategories.empty())
+    {
+        lfoSubMenu.addColumnBreak();
+        Surge::Widgets::MenuCenteredBoldLabel::addToMenuAsSectionHeader(lfoSubMenu, "USER PRESETS");
+        addCategoryList(lfoSubMenu, userPresetCategories);
+    }
+
+    lfoSubMenu.addColumnBreak();
+    Surge::Widgets::MenuCenteredBoldLabel::addToMenuAsSectionHeader(lfoSubMenu, "FUNCTIONS");
+
+    // Save modulator
+    lfoSubMenu.addItem(
+        Surge::GUI::toOSCase("Save " + what + " Preset As..."), [this, currentLfoId, what]() {
+            promptForMiniEdit(
+                "", "Enter the preset name:", what + " Preset Name", juce::Point<int>{},
+                [this, currentLfoId](const std::string &s) {
+                    this->synth->storage.modulatorPreset->savePresetToUser(
+                        string_to_path(s), &(this->synth->storage), current_scene, currentLfoId);
+                },
+                lfoMenuButton);
+        });
     lfoSubMenu.addSeparator();
-    lfoSubMenu.addItem(Surge::GUI::toOSCase("Rescan Presets"),
+
+    // Refresh presets
+    lfoSubMenu.addItem(Surge::GUI::toOSCase("Refresh Presets"),
                        [this]() { this->synth->storage.modulatorPreset->forcePresetRescan(); });
+    lfoSubMenu.addSeparator();
+
+    // Manual link
+    auto hu = helpURLForSpecial("lfo-presets");
+    auto lurl = hu;
+
+    if (hu != "")
+    {
+        lurl = fullyResolvedHelpURL(hu);
+    }
+
+    auto hmen = std::make_unique<Surge::Widgets::MenuTitleHelpComponent>("LFO Presets", lurl);
+
+    hmen->setSkin(currentSkin, bitmapStore);
+    hmen->setCentered(false);
+    auto hment = hmen->getTitle();
+    lfoSubMenu.addCustomItem(-1, std::move(hmen), nullptr, hment);
 
     return lfoSubMenu;
 }

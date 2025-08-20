@@ -20,8 +20,8 @@
  * https://github.com/surge-synthesizer/surge
  */
 
-#ifndef SURGE_SRC_COMMON_MODULATORPRESETMANAGER_H
-#define SURGE_SRC_COMMON_MODULATORPRESETMANAGER_H
+#ifndef SURGE_SRC_COMMON_WAVETABLESCRIPTPRESETMANAGER_H
+#define SURGE_SRC_COMMON_WAVETABLESCRIPTPRESETMANAGER_H
 
 #include "filesystem/import.h"
 #include <vector>
@@ -31,7 +31,7 @@ namespace Surge
 {
 namespace Storage
 {
-struct ModulatorPreset
+struct WavetableScriptPreset
 {
     /*
      * Given a storage, scene, and LFO, stream stream it to a file relative to the location
@@ -78,4 +78,4 @@ struct ModulatorPreset
 };
 } // namespace Storage
 } // namespace Surge
-#endif // SURGE_SRC_COMMON_MODULATORPRESETMANAGER_H
+#endif // SURGE_SRC_COMMON_WAVETABLESCRIPTPRESETMANAGER_H
