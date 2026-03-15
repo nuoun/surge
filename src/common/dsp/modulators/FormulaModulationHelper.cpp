@@ -244,7 +244,7 @@ end
 
             addn("tempo", s.tempo);
             addn("songpos", s.songpos);
-            addb("released", s.released);
+            addn("phase", 0); // Prevent state.phase = nil in init()
 
             if (s.isVoice)
             {
@@ -266,6 +266,7 @@ end
             addb("use_envelope", true);
             addb("retrigger_AEG", false);
             addb("retrigger_FEG", false);
+            addb("released", s.released);
 
             // Legacy tables for deprecated macro subscriptions
             // TODO: Remove in XT2

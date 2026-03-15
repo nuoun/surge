@@ -789,7 +789,7 @@ template <bool first> void SurgeVoice::calc_ctrldata(QuadFilterChainState *Q, in
                                                     state.scene_id);
             Surge::Formula::setupEvaluatorStateFrom(lfo[i].formulastate, this);
 
-            if (scene->modsource_doprocess[ms_lfo1 + i])
+            if (i == 0 || scene->modsource_doprocess[ms_lfo1 + i]) // LFO1 always runs for retrigger
             {
                 lfo[i].process_block();
             }
