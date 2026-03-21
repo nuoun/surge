@@ -4166,7 +4166,9 @@ struct ItemWithSharedIconComponent : juce::PopupMenu::CustomComponent
     void mouseDown(const juce::MouseEvent &event) override
     {
         if (item.action)
+        {
             item.action();
+        }
         triggerMenuItem();
     }
     void paint(juce::Graphics &g) override
