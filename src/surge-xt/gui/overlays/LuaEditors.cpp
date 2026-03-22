@@ -3313,8 +3313,8 @@ struct WavetableScriptControlArea : public juce::Component,
             auto btnrect = juce::Rectangle<int>(xpos, ypos - 1, 12, buttonHeight);
             menuB->setBounds(btnrect);
             menuB->setSkin(skin, associatedBitmapStore);
-            menuB->setTitle("File Menu");
-            menuB->setDescription("File Menu");
+            menuB->setTitle("Wavetable Script Menu");
+            menuB->setDescription("Wavetable Script Menu");
             menuB->menuFactory = [w = juce::Component::SafePointer(this)] {
                 juce::PopupMenu menu;
                 w->overlay->createMenu(menu);
