@@ -45,6 +45,7 @@ struct MenuButtonFromAsset : public juce::Component,
     void setValue(float) override {}
     void onSkinChanged() override;
     void paint(juce::Graphics &g) override;
+
     void mouseEnter(const juce::MouseEvent &) override;
     void mouseExit(const juce::MouseEvent &) override;
     void mouseDown(const juce::MouseEvent &e) override;
@@ -71,4 +72,4 @@ struct MenuButtonFromAsset : public juce::Component,
 
 } // namespace Widgets
 } // namespace Surge
-#endif
+#endif // SURGE_SRC_SURGE_XT_GUI_WIDGETS_MENUBUTTONFROMASSET_H
