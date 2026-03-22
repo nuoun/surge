@@ -37,7 +37,7 @@
 
 #include "overlays/TypeinParamEditor.h"
 
-#include "widgets/MenuButtonFromIcon.h"
+#include "widgets/MenuButtonFromAsset.h"
 #include "widgets/MultiSwitch.h"
 #include "widgets/NumberField.h"
 #include "widgets/MenuCustomComponents.h"
@@ -3307,10 +3307,9 @@ struct WavetableScriptControlArea : public juce::Component,
             int xpos = margin * 3;
             int ypos = 1 + labelHeight + margin;
 
-            auto xml = juce::parseXML(SurgeXTBinary::menu_icon_svg);
-            auto icon = juce::Drawable::createFromSVG(*xml);
-            menuB = std::make_unique<Surge::Widgets::MenuButtonFromIcon>(
-                [] { return juce::PopupMenu(); }, std::move(icon));
+            menuB = std::make_unique<Surge::Widgets::MenuButtonFromAsset>(
+                [] { return juce::PopupMenu(); });
+            menuB->currentImageID = IDB_LFO_PRESET_MENU;
             auto btnrect = juce::Rectangle<int>(xpos, ypos - 1, 12, buttonHeight);
             menuB->setBounds(btnrect);
             menuB->setSkin(skin, associatedBitmapStore);
@@ -3762,7 +3761,7 @@ struct WavetableScriptControlArea : public juce::Component,
     }
 
     std::unique_ptr<Surge::Overlays::TypeinLambdaEditor> typeinEditor;
-    std::unique_ptr<Surge::Widgets::MenuButtonFromIcon> menuB;
+    std::unique_ptr<Surge::Widgets::MenuButtonFromAsset> menuB;
     std::unique_ptr<juce::Label> codeL, renderModeL, currentFrameL, framesL, resolutionL;
     std::unique_ptr<Surge::Widgets::MultiSwitchSelfDraw> codeS, renderModeS, applyS, generateS;
     std::unique_ptr<Surge::Widgets::NumberField> currentFrameN, framesN, resolutionN;

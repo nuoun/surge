@@ -20,8 +20,8 @@
  * https://github.com/surge-synthesizer/surge
  */
 
-#ifndef SURGE_SRC_SURGE_XT_GUI_WIDGETS_MENUBUTTONFROMICON_H
-#define SURGE_SRC_SURGE_XT_GUI_WIDGETS_MENUBUTTONFROMICON_H
+#ifndef SURGE_SRC_SURGE_XT_GUI_WIDGETS_MENUBUTTONFROMASSET_H
+#define SURGE_SRC_SURGE_XT_GUI_WIDGETS_MENUBUTTONFROMASSET_H
 
 #include "AccessibleHelpers.h"
 #include "SkinSupport.h"
@@ -34,21 +34,17 @@ namespace Surge
 namespace Widgets
 {
 
-struct MenuButtonFromIcon : public juce::Component,
-                            public WidgetBaseMixin<MenuButtonFromIcon>,
-                            public Surge::Widgets::HasAccessibleSubComponentForFocus
+struct MenuButtonFromAsset : public juce::Component,
+                             public WidgetBaseMixin<MenuButtonFromAsset>,
+                             public Surge::Widgets::HasAccessibleSubComponentForFocus
 {
-    MenuButtonFromIcon(std::function<juce::PopupMenu()> factory = {},
-                       std::unique_ptr<juce::Drawable> svgIcon = nullptr);
-
-    MenuButtonFromIcon();
-    ~MenuButtonFromIcon();
+    MenuButtonFromAsset(std::function<juce::PopupMenu()> factory = {});
+    ~MenuButtonFromAsset();
 
     float getValue() const override { return 0.f; }
     void setValue(float) override {}
     void onSkinChanged() override;
     void paint(juce::Graphics &g) override;
-
     void mouseEnter(const juce::MouseEvent &) override;
     void mouseExit(const juce::MouseEvent &) override;
     void mouseDown(const juce::MouseEvent &e) override;
@@ -56,22 +52,23 @@ struct MenuButtonFromIcon : public juce::Component,
     void focusGained(juce::Component::FocusChangeType cause) override;
     void focusLost(juce::Component::FocusChangeType cause) override;
 
-    std::function<juce::PopupMenu()> menuFactory;
-    std::unique_ptr<juce::Drawable> baseIcon;
-    std::unique_ptr<juce::Drawable> iconNormal;
-    std::unique_ptr<juce::Drawable> iconHovered;
-
     juce::Component *getCurrentAccessibleSelectionComponent() override;
     std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
 
+    std::function<juce::PopupMenu()> menuFactory;
+    int currentImageID{-1};
     bool isDeactivated{false};
     bool isHovered{false};
     bool isActive{false};
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MenuButtonFromIcon);
+  private:
+    std::unique_ptr<juce::Drawable> baseIcon;
+    std::unique_ptr<juce::Drawable> iconHovered;
+    bool usesTwoFrameAsset{false};
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MenuButtonFromAsset);
 };
 
 } // namespace Widgets
 } // namespace Surge
-
-#endif // SURGE_SRC_SURGE_XT_GUI_WIDGETS_MENUBUTTONFROMICON_H
+#endif
