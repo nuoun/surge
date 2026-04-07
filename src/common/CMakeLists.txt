@@ -8,6 +8,9 @@ endif()
 
 surge_add_lib_subdirectory(airwindows)
 surge_add_lib_subdirectory(binn)
+
+# Toggle this to false to turn on superparasites for surge
+set(EURORACK_CLOUDS_IS_CLOUDS FALSE)
 surge_add_lib_subdirectory(eurorack)
 surge_add_lib_subdirectory(pffft)
 surge_add_lib_subdirectory(fmt)
