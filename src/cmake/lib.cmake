@@ -141,7 +141,8 @@ function(surge_make_installers)
     set(SURGE_PORTABLE_DIR ${CMAKE_BINARY_DIR}/surge-xt-portable)
     set(portsst "${SURGE_PORTABLE_DIR}/Surge Synth Team")
 
-    add_custom_command(TARGET surge-xt-distribution
+    if (NOT DEFINED SURGE_LINUX_ARM)
+      add_custom_command(TARGET surge-xt-distribution
             POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory ${SURGE_PORTABLE_DIR}
             COMMAND ${CMAKE_COMMAND} -E rm -rf "${portsst}"
@@ -153,7 +154,8 @@ function(surge_make_installers)
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/resources/data" "${portsst}/SurgeXTData"
 
             COMMAND cd "${SURGE_PORTABLE_DIR}" && tar cvzf ${SURGE_XT_DIST_OUTPUT_DIR}/surge-xt-portable-content-${SXTVER}.tar.gz .
-    )
+      )
+    endif()
 
   elseif(WIN32)
     if (${SURGE_BITNESS} EQUAL 64)
