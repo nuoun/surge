@@ -63,6 +63,13 @@ jobs:
             cmakeOpt: DEBUG
             runTests: false
 
+          - name: ubuntu-arm
+            os: ubuntu-24.04-arm
+            target: surge-xt_CLAP
+            cmakeConfig: -GNinja -DSURGE_LINUX_ARM=TRUE
+            cmakeOpt: DEBUG
+            runTests: false
+
           - name: "Ubuntu (latest) SurgePy"
             os: ubuntu-latest
             target: surgepy
