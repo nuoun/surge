@@ -47,7 +47,7 @@ cat <<EOT >> ${PACKAGE_NAME}/DEBIAN/control
 Source: ${PACKAGE_NAME}
 Package: ${PACKAGE_NAME}
 Version: $DEB_VERSION
-Architecture: aarch64
+Architecture: arm64
 Maintainer: surgeteam <noreply@github.com>
 Depends: libc6 (>=2.27), libcairo2, libfontconfig1, libfreetype6, libx11-6, libxcb-cursor0, libxcb-xkb1, libxcb1, libxkbcommon-x11-0, libxkbcommon0,  xdg-utils, xclip
 Provides: vst-plugin
