@@ -104,13 +104,13 @@ find ${PACKAGE_NAME}/usr/lib -print
 find ${PACKAGE_NAME}/usr/bin -print
 
 # build deb package
-dpkg-deb --verbose --build ${PACKAGE_NAME} ${TARGET_DIR}/${PACKAGE_NAME}-linux-aarch64-${VERSION}.deb
+dpkg-deb --verbose --build ${PACKAGE_NAME} ${TARGET_DIR}/${PACKAGE_NAME}-linux-arm64-${VERSION}.deb
 
 # create a tarball of the {PACKAGE_NAME}/usr contents.
 pigz="$(command -v pigz)"
 
 pushd ${PACKAGE_NAME}/usr
-    tar cf - ./* | "${pigz:-gzip}" > "${TARGET_DIR}/${PACKAGE_NAME}-linux-aarch64-${VERSION}.tar.gz"
+    tar cf - ./* | "${pigz:-gzip}" > "${TARGET_DIR}/${PACKAGE_NAME}-linux-arm64-${VERSION}.tar.gz"
 popd
 
 
