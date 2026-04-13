@@ -9,6 +9,7 @@
 #include "RuntimeFont.h"
 #include "SkinModel.h"
 #include "SurgeGUIEditor.h"
+#include "SurgeJUCEHelpers.h"
 #include "SurgeGUIEditorTags.h"
 #include "dsp/effects/ConditionerEffect.h"
 #include "dsp/effects/ConvolutionEffect.h"
@@ -60,26 +61,125 @@ struct ConvolutionButton : public juce::Component
 
     void mouseDown(const juce::MouseEvent &event) override
     {
+        hideTooltip();
+
         if (event.mods.isMiddleButtonDown() && sge)
         {
             sge->frame->mouseDown(event);
             return;
         }
 
+        if (!event.mods.isPopupMenu())
+        {
+            if (leftJog.contains(event.position))
+            {
+                jogIR(-1);
+                return;
+            }
+            else if (rightJog.contains(event.position))
+            {
+                jogIR(1);
+                return;
+            }
+        }
+
         showIRMenu();
     }
 
-    bool isMousedOver = false;
+    bool isMousedOver{false};
+    bool isJogLHovered{false}, isJogRHovered{false}, isNameHovered{false};
+    juce::Rectangle<float> leftJog, rightJog, irNameRect;
+
+    int tooltipCountdown{-1};
+    bool tooltipShowing{false};
+
+    bool isNameTruncated() const
+    {
+        if (!sge)
+            return false;
+        auto ft = sge->currentSkin->fontManager->getLatoAtSize(9);
+        auto textW = SST_STRING_WIDTH_FLOAT(ft, juce::String(irname));
+        return textW > irNameRect.getWidth() - 2;
+    }
+
+    void hideTooltip()
+    {
+        tooltipCountdown = -1;
+        if (sge && tooltipShowing)
+        {
+            sge->hideIRNameTooltip();
+        }
+        tooltipShowing = false;
+    }
+
+    void shouldTooltip()
+    {
+        if (tooltipCountdown < 0)
+            return;
+
+        tooltipCountdown--;
+
+        if (tooltipCountdown == 0)
+        {
+            tooltipCountdown = -1;
+            if (sge && isNameTruncated())
+            {
+                auto b = sge->frame->getLocalArea(this, getLocalBounds());
+                sge->showIRNameTooltip(irname, b);
+                tooltipShowing = true;
+            }
+        }
+        else
+        {
+            juce::Timer::callAfterDelay(100, Surge::GUI::makeSafeCallback<ConvolutionButton>(
+                                                 this, [](auto *that) { that->shouldTooltip(); }));
+        }
+    }
 
     void mouseEnter(const juce::MouseEvent &event) override
     {
         isMousedOver = true;
         repaint();
     }
+
     void mouseExit(const juce::MouseEvent &event) override
     {
         isMousedOver = false;
+        isJogLHovered = false;
+        isJogRHovered = false;
+        isNameHovered = false;
+        hideTooltip();
         repaint();
+    }
+
+    void mouseMove(const juce::MouseEvent &event) override
+    {
+        auto njl = leftJog.contains(event.position);
+        auto njr = rightJog.contains(event.position);
+        auto nnm = irNameRect.contains(event.position);
+
+        if (njl != isJogLHovered || njr != isJogRHovered || nnm != isNameHovered)
+        {
+            isJogLHovered = njl;
+            isJogRHovered = njr;
+            isNameHovered = nnm;
+            repaint();
+        }
+
+        if (nnm)
+        {
+            if (tooltipCountdown < 0 && !tooltipShowing)
+            {
+                tooltipCountdown = 3;
+                juce::Timer::callAfterDelay(100,
+                                            Surge::GUI::makeSafeCallback<ConvolutionButton>(
+                                                this, [](auto *that) { that->shouldTooltip(); }));
+            }
+        }
+        else
+        {
+            hideTooltip();
+        }
     }
 
     void paint(juce::Graphics &g) override
@@ -97,16 +197,48 @@ struct ConvolutionButton : public juce::Component
         auto fgframeHov = skin->getColor(Colors::Effect::Grid::Scene::BackgroundHover);
         auto fgtextHov = skin->getColor(Colors::Effect::Grid::Scene::TextHover);
 
-        auto irr = getLocalBounds();
+        auto irr = getLocalBounds().toFloat();
+        auto h = irr.getHeight();
 
-        bool focused = isMousedOver || hasKeyboardFocus(true);
-        g.setColour(focused ? fgcolHov : fgcol);
-        g.fillRect(irr);
-        g.setColour(focused ? fgframeHov : fgframe);
+        leftJog = irr.withRight(h);
+        rightJog = irr.withLeft(irr.getWidth() - h);
+        irNameRect = irr.withTrimmedLeft(h).withTrimmedRight(h);
+
+        float triO = 3;
+
+        // Fill each region individually for per-region hover.
+        g.setColour(isJogLHovered ? fgcolHov : fgcol);
+        g.fillRect(leftJog);
+        g.setColour(isJogRHovered ? fgcolHov : fgcol);
+        g.fillRect(rightJog);
+        bool nameFocused = isNameHovered || hasKeyboardFocus(true);
+        g.setColour(nameFocused ? fgcolHov : fgcol);
+        g.fillRect(irNameRect);
+
+        // Single outer border.
+        g.setColour(fgframe);
         g.drawRect(irr);
-        g.setColour(focused ? fgtextHov : fgtext);
+
+        // Left jog arrow
+        g.setColour(isJogLHovered ? fgtextHov : fgtext);
+        auto triL = juce::Path();
+        triL.addTriangle(leftJog.getTopRight().translated(-triO, triO),
+                         leftJog.getBottomRight().translated(-triO, -triO),
+                         leftJog.getCentre().withX(leftJog.getX() + triO));
+        g.fillPath(triL);
+
+        // Right jog arrow
+        g.setColour(isJogRHovered ? fgtextHov : fgtext);
+        auto triR = juce::Path();
+        triR.addTriangle(rightJog.getTopLeft().translated(triO, triO),
+                         rightJog.getBottomLeft().translated(triO, -triO),
+                         rightJog.getCentre().withX(rightJog.getX() + rightJog.getWidth() - triO));
+        g.fillPath(triR);
+
+        // IR name text
+        g.setColour(nameFocused ? fgtextHov : fgtext);
         g.setFont(skin->fontManager->getLatoAtSize(9));
-        g.drawText(juce::String(irname), irr, juce::Justification::centred);
+        g.drawText(juce::String(irname), irNameRect, juce::Justification::centred);
     }
 
     void showIRMenu()
@@ -291,6 +423,40 @@ struct ConvolutionButton : public juce::Component
         }
         sge->synth->fx_reload[slot] = true;
         sge->synth->load_fx_needed = true;
+    }
+
+    void jogIR(int dir)
+    {
+        if (!storage || storage->irOrdering.empty())
+            return;
+
+        // Find current IR's position in the display ordering by name.
+        int currentPos = -1;
+        for (int i = 0; i < (int)storage->irOrdering.size(); i++)
+        {
+            if (storage->ir_list[storage->irOrdering[i]].name == irname)
+            {
+                currentPos = i;
+                break;
+            }
+        }
+
+        int newPos;
+        if (currentPos < 0)
+        {
+            // Current IR not in the list, start from beginning or end.
+            newPos = (dir > 0) ? 0 : (int)storage->irOrdering.size() - 1;
+        }
+        else
+        {
+            newPos = currentPos + dir;
+            if (newPos < 0)
+                newPos = (int)storage->irOrdering.size() - 1;
+            if (newPos >= (int)storage->irOrdering.size())
+                newPos = 0;
+        }
+
+        loadIR(storage->irOrdering[newPos]);
     }
 
     void loadIR(int id)
