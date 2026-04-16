@@ -39,6 +39,7 @@
 #include "ModulatorPresetManager.h"
 #include "ModulationSource.h"
 #include "WavetableScriptEvaluator.h"
+#include "PatchFileHeaderStructs.h"
 
 #include "SurgeSynthEditor.h"
 #include "SurgeJUCELookAndFeel.h"
@@ -78,9 +79,12 @@
 #include "widgets/XMLConfiguredMenus.h"
 
 #include "ModulationGridConfiguration.h"
+
 #include "sst/plugininfra/strnatcmp.h"
+#include "sst/basic-blocks/mechanics/endian-ops.h"
 
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -103,6 +107,7 @@
 
 #include "filesystem/import.h"
 #include "RuntimeFont.h"
+#include "zstd.h"
 
 #include "juce_core/juce_core.h"
 #include "AccessibleHelpers.h"
@@ -6814,10 +6819,90 @@ void SurgeGUIEditor::saveWavetableScript(const fs::path &location, SurgeStorage 
             }
 
             wtscript.InsertEndChild(script);
-            doc.InsertEndChild(wtscript);
-            if (!doc.SaveFile(fullLocation))
+
+            // Collect snapshot float data and build per-slot XML metadata
+            TiXmlElement sn("snapshots");
+            std::vector<float> snapshotFloats;
+            for (int slot = 0; slot < n_wt_snapshots; ++slot)
             {
-                storage->reportError("Failed to save XML file.", "XML Save Error");
+                const auto &snap = oscdata->wtSnapshots[slot];
+                if (!snap || !snap->everBuilt)
+                {
+                    continue;
+                }
+
+                const unsigned int nframes = snap->n_tables;
+                const int nsamples = snap->size;
+
+                for (unsigned int t = 0; t < nframes; ++t)
+                {
+                    const float *tbl = snap->TableF32WeakPointers[0][t];
+                    snapshotFloats.insert(snapshotFloats.end(), tbl, tbl + nsamples);
+                }
+
+                TiXmlElement sl("snapshot");
+                sl.SetAttribute("slot", slot);
+                sl.SetAttribute("frames", nframes);
+                sl.SetAttribute("samples", nsamples);
+                sn.InsertEndChild(sl);
+            }
+            if (!snapshotFloats.empty())
+            {
+                wtscript.InsertEndChild(sn);
+            }
+
+            doc.InsertEndChild(wtscript);
+
+            // Serialize XML to a string
+            std::string xmlStr;
+            xmlStr << doc;
+
+            std::ofstream outFile(fullLocation, std::ios::binary);
+            if (!outFile)
+            {
+                storage->reportError("Failed to open file for writing.", "Save Error");
+                return;
+            }
+
+            if (snapshotFloats.empty())
+            {
+                // Just the XML
+                outFile.write(xmlStr.data(), xmlStr.size());
+            }
+            else
+            {
+                // Compress the snapshot float data
+                namespace mech = sst::basic_blocks::mechanics;
+                const size_t rawSize = snapshotFloats.size() * sizeof(float);
+                const size_t compBound = ZSTD_compressBound(rawSize);
+                std::vector<uint8_t> compressed(compBound);
+                const size_t compSize =
+                    ZSTD_compress(compressed.data(), compBound, snapshotFloats.data(), rawSize, 3);
+                if (ZSTD_isError(compSize))
+                {
+                    storage->reportError("Failed to compress snapshot data.", "Save Error");
+                    return;
+                }
+                compressed.resize(compSize);
+
+                // Fixed binary header: tag + xmlsize + blobsize
+                sst::io::wtscript_header header{};
+                std::memcpy(header.tag, "wts1", 4);
+                header.xmlsize =
+                    mech::endian_write_int32LE(static_cast<unsigned int>(xmlStr.size()));
+                header.blobsize =
+                    mech::endian_write_int32LE(static_cast<unsigned int>(compressed.size()));
+
+                outFile.write(reinterpret_cast<const char *>(&header), sizeof(header));
+                outFile.write(xmlStr.data(), xmlStr.size());
+                outFile.write(reinterpret_cast<const char *>(compressed.data()), compressed.size());
+            }
+
+            outFile.close();
+            if (!outFile)
+            {
+                storage->reportError("Failed to write file.", "Save Error");
+                return;
             }
 
             storage->refresh_wtlist();

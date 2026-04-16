@@ -25,6 +25,7 @@
 
 #include "juce_gui_basics/juce_gui_basics.h"
 #include "SkinSupport.h"
+#include "SurgeStorage.h"
 
 namespace Surge
 {
@@ -184,6 +185,44 @@ struct ModMenuForAllComponent : ModMenuCustomComponent
     std::unique_ptr<juce::PopupMenu> createAccessibleSubMenu();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ModMenuForAllComponent);
+};
+
+struct WavetableSnapshotMenuComponent : juce::PopupMenu::CustomComponent,
+                                        Surge::GUI::SkinConsumingComponent
+{
+    enum class Action
+    {
+        CaptureOsc1 = 0,
+        CaptureOsc2 = 1,
+        CaptureOsc3 = 2,
+        LoadFromFile = -1,
+        Clear = -2
+    };
+
+    std::function<void(Action)> callback;
+
+    WavetableSnapshotMenuComponent(const std::string &label, const std::string &sceneName,
+                                   std::function<void(Action)> cb);
+    ~WavetableSnapshotMenuComponent() noexcept override = default;
+
+    void getIdealSize(int &idealWidth, int &idealHeight) override;
+    void paint(juce::Graphics &g) override;
+    void resized() override;
+    void mouseDown(const juce::MouseEvent &e) override;
+    void mouseMove(const juce::MouseEvent &e) override;
+    void mouseExit(const juce::MouseEvent &e) override;
+    void onSkinChanged() override;
+
+    std::string snapLabel;
+    std::string sceneName;
+
+    std::unique_ptr<TinyLittleIconButton> clearButton;
+    std::array<juce::Rectangle<int>, n_oscs> oscHitBoxes;
+    int hoveredOsc{-1};
+    juce::Rectangle<int> loadFileHitBox;
+    bool hoveredFile{false};
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WavetableSnapshotMenuComponent);
 };
 
 } // namespace Widgets

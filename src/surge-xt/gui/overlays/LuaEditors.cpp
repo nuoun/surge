@@ -3905,6 +3905,7 @@ void WavetableScriptEditor::forceRefresh()
     setApplyEnabled(false);
     setCurrentFrame(1);
 
+    lastFrames = -1;
     rerenderFromUIState();
 }
 
@@ -4010,6 +4011,7 @@ void WavetableScriptEditor::setupEvaluator()
         respt *= 2;
 
     evaluator->setStorage(storage);
+    evaluator->setOscillatorStorage(scene, osc_id);
     evaluator->setScript(mainDocument->getAllContent().toStdString());
     evaluator->setResolution(respt);
     evaluator->setFrameCount(controlArea->framesN->getIntValue());
@@ -4077,8 +4079,62 @@ void WavetableScriptEditor::createMenu(juce::PopupMenu &menu)
     {
         menu.addItem(Surge::GUI::toOSCase("Save as .wtscript..."),
                      [this]() { this->editor->saveWavetableScript(); });
-        menu.addSeparator();
+    }
+    menu.addSeparator();
 
+    // Import snapshot submenu
+    juce::PopupMenu snapshotMenu;
+    std::string sceneName = (scene == 0) ? "Scene A" : "Scene B";
+
+    for (int slot = 0; slot < n_wt_snapshots; ++slot)
+    {
+        const auto &snap = osc->wtSnapshots[slot];
+        const bool populated = snap && snap->everBuilt;
+
+        std::string snapLabel = "Snapshot " + std::to_string(slot + 1);
+        if (populated)
+        {
+            const unsigned int frames = snap->n_tables;
+            snapLabel += " (" + std::to_string(frames) + (frames == 1 ? " frame" : " frames") +
+                         ", " + std::to_string(snap->size) + " samples)";
+        }
+
+        auto comp = std::make_unique<Surge::Widgets::WavetableSnapshotMenuComponent>(
+            snapLabel, sceneName,
+            [this, slot](Surge::Widgets::WavetableSnapshotMenuComponent::Action action) {
+                if (action == Surge::Widgets::WavetableSnapshotMenuComponent::Action::LoadFromFile)
+                {
+                    loadWavetableForSnapshot(slot);
+                    return;
+                }
+                if (action == Surge::Widgets::WavetableSnapshotMenuComponent::Action::Clear)
+                {
+                    osc->wtSnapshots[slot].reset();
+                }
+                else
+                {
+                    storage->getPatch().captureWavetableSnapshot(scene, static_cast<int>(action),
+                                                                 osc_id, slot);
+                }
+                lastFrames = -1;
+                rerenderFromUIState();
+                rendererComponent->repaint();
+            });
+        comp->setSkin(skin, associatedBitmapStore);
+
+        comp->clearButton->setVisible(populated);
+
+        if (slot > 0)
+        {
+            snapshotMenu.addSeparator();
+        }
+        snapshotMenu.addCustomItem(-1, std::move(comp), nullptr, snapLabel);
+    }
+    menu.addSubMenu(Surge::GUI::toOSCase("Import Wavetable Data"), snapshotMenu);
+    menu.addSeparator();
+
+    if (!osc->wavetable_script.empty())
+    {
         menu.addItem(Surge::GUI::toOSCase("Export as .wav..."), [this]() {
             this->editor->exportWavetableAs(SurgeGUIEditor::WTExportFormat::WAV);
         });
@@ -4093,8 +4149,8 @@ void WavetableScriptEditor::createMenu(juce::PopupMenu &menu)
         menu.addItem("Export for VCV Rack...", [this]() {
             this->editor->exportWavetableAs(SurgeGUIEditor::WTExportFormat::VCVRACK);
         });
+        menu.addSeparator();
     }
-    menu.addSeparator();
 
     auto msurl = editor->helpURLForSpecial("wts-editor");
     auto hurl = editor->fullyResolvedHelpURL(msurl);
@@ -4340,6 +4396,61 @@ void WavetableScriptEditor::loadWavetableScript(int id)
         ssp->paramChangeToListeners(nullptr, true, ssp->SCT_WAVETABLE, (float)scene, (float)osc_id,
                                     (float)id, new_name);
     }
+}
+
+// Modified from OscillatorWaveformDisplay::loadWavetableFromFile
+void WavetableScriptEditor::loadWavetableForSnapshot(int slot)
+{
+    assert(slot >= 0 && slot < n_wt_snapshots);
+    auto wtPath = storage->userWavetablesPath;
+    wtPath = Surge::Storage::getUserDefaultPath(storage, Surge::Storage::LastWavetablePath, wtPath);
+
+    if (!editor)
+    {
+        return;
+    }
+
+    juce::String fileTypes = "*.wav;*.wt";
+    editor->fileChooser = std::make_unique<juce::FileChooser>(
+        "Select Wavetable to Load", juce::File(path_to_string(wtPath)), fileTypes);
+    editor->fileChooser->launchAsync(
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [this, wtPath, slot](const juce::FileChooser &c) {
+            auto ress = c.getResults();
+
+            if (ress.size() != 1)
+            {
+                return;
+            }
+
+            auto res = c.getResult();
+            auto rString = res.getFullPathName().toStdString();
+
+            auto &snap = osc->wtSnapshots[slot];
+            if (!snap)
+            {
+                snap = std::make_unique<Wavetable>();
+            }
+
+            storage->load_wt(rString, snap.get(), nullptr);
+
+            if (!snap->everBuilt || snap->n_tables == 0 || snap->size == 0)
+            {
+                snap.reset();
+            }
+
+            lastFrames = -1;
+            rerenderFromUIState();
+            rendererComponent->repaint();
+
+            auto dir = string_to_path(res.getParentDirectory().getFullPathName().toStdString());
+
+            if (dir != wtPath)
+            {
+                Surge::Storage::updateUserDefaultPath(storage, Surge::Storage::LastWavetablePath,
+                                                      dir);
+            }
+        });
 }
 
 std::optional<std::pair<std::string, std::string>>

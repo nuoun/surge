@@ -1311,6 +1311,44 @@ std::vector<std::uint8_t> SurgePatch::save_arbitrary_block_storage()
         binn_free(fxmap);
     }
 
+    // User opt-in for patch files, always include for DAW state saves.
+    if (snapshotsStoredInPatch || (dawExtraState.isPopulated && hasAnySnapshots()))
+    {
+        for (int sc = 0; sc < n_scenes; sc++)
+        {
+            for (int osc = 0; osc < n_oscs; osc++)
+            {
+                binn *oscmap = binn_object();
+                for (int slot = 0; slot < n_wt_snapshots; slot++)
+                {
+                    auto &snap = scene[sc].osc[osc].wtSnapshots[slot];
+                    if (!snap || !snap->everBuilt)
+                        continue;
+
+                    std::uint32_t ntables = snap->n_tables;
+                    std::uint32_t nsamples = snap->size;
+                    std::vector<float> data(static_cast<size_t>(ntables) * nsamples);
+                    for (std::uint32_t t = 0; t < ntables; t++)
+                    {
+                        std::memcpy(data.data() + static_cast<size_t>(t) * nsamples,
+                                    snap->TableF32WeakPointers[0][t], nsamples * sizeof(float));
+                    }
+
+                    binn_object_set_uint32(oscmap, fmt::format("snap_{}_ntables", slot).c_str(),
+                                           ntables);
+                    binn_object_set_uint32(oscmap, fmt::format("snap_{}_nsamples", slot).c_str(),
+                                           nsamples);
+                    binn_object_set_blob(oscmap, fmt::format("snap_{}_data", slot).c_str(),
+                                         data.data(),
+                                         static_cast<int>(data.size() * sizeof(float)));
+                }
+                std::string key = fmt::format("osc_{}_{}", sc, osc);
+                binn_object_set_object(map, key.c_str(), oscmap);
+                binn_free(oscmap);
+            }
+        }
+    }
+
     // Now compress it with zstd
     auto size = binn_size(map);
     void *ptr = binn_ptr(map);
@@ -1361,6 +1399,7 @@ unsigned int SurgePatch::load_arbitrary_block_storage(const void *data, std::siz
     binn *b = binn_open_ex(data, sz);
 
     std::regex fx_regex("fx([0-9]+)");
+    std::regex osc_regex("osc_([0-9]+)_([0-9]+)");
     binn_iter outer;
     binn obj;
     char key[256];
@@ -1412,6 +1451,84 @@ unsigned int SurgePatch::load_arbitrary_block_storage(const void *data, std::siz
                 else
                     vdata->resize(binn_size(&data));
                 std::memcpy(vdata->data(), data.ptr, binn_size(&data));
+            }
+        }
+
+        // Try deserializing oscillator snapshot data.
+        else if (std::regex_match(key, m, osc_regex))
+        {
+            int sc = -1, osc = -1;
+            try
+            {
+                sc = std::stoi(m[1].str());
+                osc = std::stoi(m[2].str());
+            }
+            catch (std::invalid_argument const &ex)
+            {
+                std::cerr << "Error deserializing " << key << "; possible patch corruption."
+                          << std::endl;
+                continue;
+            }
+
+            // Deserialize the oscillator snapshot data.
+            std::unordered_map<std::string, std::shared_ptr<std::vector<std::uint8_t>>> arb;
+            binn_iter inner;
+            binn data;
+            char osckey[256];
+            binn_iter_init(&inner, &obj, BINN_OBJECT);
+            while (binn_object_next(&inner, osckey, &data))
+            {
+                if (data.type != BINN_BLOB)
+                    continue;
+
+                std::string converted = std::string(osckey);
+                std::shared_ptr<std::vector<std::uint8_t>> &vdata = arb[converted];
+                if (!vdata)
+                    vdata = std::make_shared<std::vector<std::uint8_t>>(binn_size(&data));
+                else
+                    vdata->resize(binn_size(&data));
+                std::memcpy(vdata->data(), data.ptr, binn_size(&data));
+            }
+
+            // Rebuild wavetable snapshots from the staged blobs.
+            for (int slot = 0; slot < n_wt_snapshots; slot++)
+            {
+                auto it = arb.find(fmt::format("snap_{}_data", slot));
+                if (it == arb.end())
+                    continue;
+
+                unsigned int ntables = 0, nsamples = 0;
+                if (!binn_object_get_uint32(&obj, fmt::format("snap_{}_ntables", slot).c_str(),
+                                            &ntables))
+                    continue;
+                if (!binn_object_get_uint32(&obj, fmt::format("snap_{}_nsamples", slot).c_str(),
+                                            &nsamples))
+                    continue;
+                if (ntables == 0 || nsamples == 0)
+                    continue;
+
+                auto &raw = *it->second;
+                if (raw.size() != static_cast<size_t>(ntables) * nsamples * sizeof(float))
+                    continue;
+
+                wt_header wh{};
+                wh.n_samples = nsamples;
+                wh.n_tables = ntables;
+                wh.flags = 0;
+
+                auto &snap = scene[sc].osc[osc].wtSnapshots[slot];
+                snap = std::make_unique<Wavetable>();
+
+                snap->BuildWT(reinterpret_cast<float *>(raw.data()), wh, false);
+
+                if (!snap->everBuilt)
+                {
+                    snap.reset();
+                }
+                else
+                {
+                    snapshotsStoredInPatch = true;
+                }
             }
         }
     }
@@ -2832,6 +2949,13 @@ void SurgePatch::load_xml(const void *data, int datasize, bool is_preset)
             patchTuning.mappingName = td;
         }
     }
+
+    // Clear all snapshots before potentially restoring from arbitrary_block_storage
+    snapshotsStoredInPatch = false;
+    for (int sc = 0; sc < n_scenes; sc++)
+        for (int osc = 0; osc < n_oscs; osc++)
+            for (int slot = 0; slot < n_wt_snapshots; slot++)
+                scene[sc].osc[osc].wtSnapshots[slot].reset();
 
     bool userPrefOverrideTempoOnPatchLoad = Surge::Storage::getUserDefaultValue(
         storage, Surge::Storage::OverrideTempoOnPatchLoad, true);
@@ -4521,4 +4645,36 @@ void SurgePatch::formulaFromXMLElement(FormulaModulatorStorage *fs, TiXmlElement
     {
         fs->interpreter = (FormulaModulatorStorage::Interpreter)(interp);
     }
+}
+
+void SurgePatch::captureWavetableSnapshot(int scene, int srcOsc, int dstOsc, int slot)
+{
+    assert(slot >= 0 && slot < n_wt_snapshots);
+    auto &snap = this->scene[scene].osc[dstOsc].wtSnapshots[slot];
+    auto &src = this->scene[scene].osc[srcOsc].wt;
+
+    if (!src.everBuilt || src.n_tables == 0 || src.size == 0)
+    {
+        return;
+    }
+
+    storage->waveTableDataMutex.lock();
+
+    if (!snap)
+    {
+        snap = std::make_unique<Wavetable>();
+    }
+    snap->Copy(&src);
+
+    storage->waveTableDataMutex.unlock();
+}
+
+bool SurgePatch::hasAnySnapshots() const
+{
+    for (int sc = 0; sc < n_scenes; sc++)
+        for (int osc = 0; osc < n_oscs; osc++)
+            for (int slot = 0; slot < n_wt_snapshots; slot++)
+                if (scene[sc].osc[osc].wtSnapshots[slot])
+                    return true;
+    return false;
 }

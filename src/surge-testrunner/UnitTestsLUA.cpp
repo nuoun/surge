@@ -1002,6 +1002,132 @@ end
     }
 }
 
+TEST_CASE("Wavetable Script Snapshots", "[wts]")
+{
+    SECTION("Script Can Read Snapshot Data")
+    {
+        SurgeStorage storage;
+        auto &osc = storage.getPatch().scene[0].osc[0];
+
+        // Populate snapshot slot 0 with a known 2-frame, 64-sample ramp
+        osc.wtSnapshots[0] = std::make_unique<Wavetable>();
+        auto &snap = *osc.wtSnapshots[0];
+
+        constexpr int nframes = 2;
+        constexpr int nsamples = 64;
+        std::vector<float> flat(nframes * nsamples);
+        for (int t = 0; t < nframes; ++t)
+        {
+            for (int i = 0; i < nsamples; ++i)
+            {
+                flat[t * nsamples + i] = (float)(t + 1) * (float)i / 63.0f;
+            }
+        }
+
+        wt_header wh{};
+        wh.n_samples = nsamples;
+        wh.n_tables = nframes;
+        wh.flags = 0;
+        snap.BuildWT(flat.data(), wh, false);
+
+        // Script that copies snapshot slot 1 (Lua 1-indexed), frame matching wt.frame
+        const std::string s = R"FN(
+function init(wt)
+    wt.name = "Snapshot Test"
+    return wt
+end
+
+function generate(wt)
+    local res = {}
+    local slot = wt.snapshot[1]
+    if slot and slot[wt.frame] then
+        for i = 1, wt.sample_count do
+            if slot[wt.frame][i] then
+                res[i] = slot[wt.frame][i]
+            else
+                res[i] = 0
+            end
+        end
+    else
+        for i = 1, wt.sample_count do
+            res[i] = 0
+        end
+    end
+    return res
+end
+        )FN";
+
+        auto la = std::make_unique<Surge::WavetableScript::LuaWTEvaluator>();
+        la->setResolution(64);
+        la->setStorage(&storage);
+        la->setOscillatorStorage(0, 0);
+        la->setFrameCount(2);
+        la->setScript(s);
+
+        auto fr0 = la->getFrame(0);
+        REQUIRE(fr0.has_value());
+        REQUIRE(fr0->size() == 64);
+        for (int i = 0; i < 64; ++i)
+        {
+            float expected = 1.0f * (float)i / 63.0f;
+            REQUIRE((*fr0)[i] == Approx(expected).margin(1e-6));
+        }
+
+        auto fr1 = la->getFrame(1);
+        REQUIRE(fr1.has_value());
+        REQUIRE(fr1->size() == 64);
+        for (int i = 0; i < 64; ++i)
+        {
+            float expected = 2.0f * (float)i / 63.0f;
+            REQUIRE((*fr1)[i] == Approx(expected).margin(1e-6));
+        }
+    }
+
+    SECTION("Empty Snapshot Slot Returns Empty Table")
+    {
+        SurgeStorage storage;
+
+        // All snapshots disabled by default, script should still run
+        const std::string s = R"FN(
+function init(wt)
+    wt.name = "Empty Snapshot Test"
+    return wt
+end
+
+function generate(wt)
+    local res = {}
+    local slot = wt.snapshot[1]
+    local hasData = false
+    if slot then
+        for k, v in pairs(slot) do
+            hasData = true
+            break
+        end
+    end
+    for i = 1, wt.sample_count do
+        res[i] = hasData and 1.0 or 0.0
+    end
+    return res
+end
+        )FN";
+
+        auto la = std::make_unique<Surge::WavetableScript::LuaWTEvaluator>();
+        la->setResolution(64);
+        la->setStorage(&storage);
+        la->setOscillatorStorage(0, 0);
+        la->setFrameCount(1);
+        la->setScript(s);
+
+        auto fr = la->getFrame(0);
+        REQUIRE(fr.has_value());
+        REQUIRE(fr->size() == 64);
+        for (int i = 0; i < 64; ++i)
+        {
+            REQUIRE((*fr)[i] == Approx(0.0).margin(1e-6));
+        }
+    }
+}
+
 TEST_CASE("PFFFT Wrapper", "[wts]")
 {
     SECTION("Round-Trip FFT")
