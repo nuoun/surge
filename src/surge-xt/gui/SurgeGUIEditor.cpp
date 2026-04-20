@@ -46,6 +46,7 @@
 
 #include "SurgeGUIEditorTags.h"
 #include "fmt/core.h"
+#include "sst/cpputils/scope_guard.h"
 
 #include "overlays/AboutScreen.h"
 #include "overlays/MiniEdit.h"
@@ -107,6 +108,7 @@
 
 #include "filesystem/import.h"
 #include "RuntimeFont.h"
+#include "binn/binn.h"
 #include "zstd.h"
 
 #include "juce_core/juce_core.h"
@@ -6820,36 +6822,10 @@ void SurgeGUIEditor::saveWavetableScript(const fs::path &location, SurgeStorage 
 
             wtscript.InsertEndChild(script);
 
-            // Collect snapshot float data and build per-slot XML metadata
-            TiXmlElement sn("snapshots");
-            std::vector<float> snapshotFloats;
-            for (int slot = 0; slot < n_wt_snapshots; ++slot)
-            {
-                const auto &snap = oscdata->wtSnapshots[slot];
-                if (!snap || !snap->everBuilt)
-                {
-                    continue;
-                }
-
-                const unsigned int nframes = snap->n_tables;
-                const int nsamples = snap->size;
-
-                for (unsigned int t = 0; t < nframes; ++t)
-                {
-                    const float *tbl = snap->TableF32WeakPointers[0][t];
-                    snapshotFloats.insert(snapshotFloats.end(), tbl, tbl + nsamples);
-                }
-
-                TiXmlElement sl("snapshot");
-                sl.SetAttribute("slot", slot);
-                sl.SetAttribute("frames", nframes);
-                sl.SetAttribute("samples", nsamples);
-                sn.InsertEndChild(sl);
-            }
-            if (!snapshotFloats.empty())
-            {
-                wtscript.InsertEndChild(sn);
-            }
+            // Build a binn object holding snapshot frame lists
+            binn *oscmap = binn_object();
+            const auto freeOscmap = sst::cpputils::make_scope_guard([&] { binn_free(oscmap); });
+            bool hasSnapshots = SurgePatch::writeOscSnapshotsToBinn(oscmap, *oscdata);
 
             doc.InsertEndChild(wtscript);
 
@@ -6864,20 +6840,20 @@ void SurgeGUIEditor::saveWavetableScript(const fs::path &location, SurgeStorage 
                 return;
             }
 
-            if (snapshotFloats.empty())
+            if (!hasSnapshots)
             {
                 // Just the XML
                 outFile.write(xmlStr.data(), xmlStr.size());
             }
             else
             {
-                // Compress the snapshot float data
+                // Compress the binn snapshot data
                 namespace mech = sst::basic_blocks::mechanics;
-                const size_t rawSize = snapshotFloats.size() * sizeof(float);
-                const size_t compBound = ZSTD_compressBound(rawSize);
+                const auto rawSize = binn_size(oscmap);
+                const auto compBound = ZSTD_compressBound(rawSize);
                 std::vector<uint8_t> compressed(compBound);
                 const size_t compSize =
-                    ZSTD_compress(compressed.data(), compBound, snapshotFloats.data(), rawSize, 3);
+                    ZSTD_compress(compressed.data(), compBound, binn_ptr(oscmap), rawSize, 3);
                 if (ZSTD_isError(compSize))
                 {
                     storage->reportError("Failed to compress snapshot data.", "Save Error");

@@ -1233,6 +1233,12 @@ struct PatchTuningStorage
 
 class SurgeStorage;
 
+// Forward declare binn to avoid including binn.h into this header
+#ifndef BINN_H
+struct binn_struct;
+typedef struct binn_struct binn;
+#endif
+
 class SurgePatch
 {
   public:
@@ -1265,6 +1271,8 @@ class SurgePatch
     bool hasAnySnapshots() const;
     unsigned int save_patch(void **data);
     std::vector<std::uint8_t> save_arbitrary_block_storage();
+    static bool writeOscSnapshotsToBinn(binn *oscmap, const OscillatorStorage &osc);
+    static bool readOscSnapshotsFromBinn(binn *oscmap, OscillatorStorage &osc);
     Parameter *parameterFromOSCName(std::string stName);
     void captureWavetableSnapshot(int scene, int srcOsc, int dstOsc, int slot);
 

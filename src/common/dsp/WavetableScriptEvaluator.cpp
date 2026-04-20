@@ -31,6 +31,8 @@
 #include <cstring>
 #include <fstream>
 #include <tinyxml/tinyxml.h>
+#include "binn/binn.h"
+#include "fmt/core.h"
 #include "zstd.h"
 
 // #define LOG(...) std::cout << __FILE__ << ":" << __LINE__ << " " << __VA_ARGS__ << std::endl;
@@ -531,6 +533,31 @@ void LuaWTEvaluator::generateWavetable(SurgeStorage *storage, OscillatorStorage 
 #endif
 }
 
+#if HAS_LUA
+static void loadWtscriptSnapshots(const void *compData, size_t blobSize, OscillatorStorage *oscdata)
+{
+    auto decompressedSize = ZSTD_getFrameContentSize(compData, blobSize);
+    if (decompressedSize == ZSTD_CONTENTSIZE_UNKNOWN || decompressedSize == ZSTD_CONTENTSIZE_ERROR)
+        return;
+
+    std::vector<std::uint8_t> decompressed(decompressedSize);
+    decompressedSize = ZSTD_decompress(decompressed.data(), decompressedSize, compData, blobSize);
+    if (ZSTD_isError(decompressedSize))
+        return;
+
+    if (decompressedSize < sizeof(binn_struct))
+        return;
+
+    int sz = 0;
+    if (!binn_is_valid_ex(decompressed.data(), NULL, NULL, &sz))
+        return;
+
+    binn *b = binn_open_ex(decompressed.data(), sz);
+    SurgePatch::readOscSnapshotsFromBinn(b, *oscdata);
+    binn_free(b);
+}
+#endif
+
 std::optional<LuaWTEvaluator::WtscriptData>
 LuaWTEvaluator::parseWtscript(const fs::path &filename, SurgeStorage *storage,
                               OscillatorStorage *oscdata)
@@ -541,7 +568,7 @@ LuaWTEvaluator::parseWtscript(const fs::path &filename, SurgeStorage *storage,
 
     /* File layout:
        - Snapshot-less: pure XML text
-       - With snapshots: [wtscript_header][XML][zstd-compressed snapshot blob]
+       - With snapshots: [wtscript_header][XML][zstd-compressed binn object]
         where wtscript_header = { tag "wts1", xmlsize, blobsize }
     */
 
@@ -566,9 +593,8 @@ LuaWTEvaluator::parseWtscript(const fs::path &filename, SurgeStorage *storage,
 
     size_t xmlOffset = 0;
     size_t xmlSize = fileSize;
-    size_t blobOffset = 0;
-    size_t blobSize = 0;
 
+    // Snapshots stored as a zstd-compressed binn object in the trailing blob
     if (hasHeader)
     {
         wtscript_header header{};
@@ -578,9 +604,9 @@ LuaWTEvaluator::parseWtscript(const fs::path &filename, SurgeStorage *storage,
 
         xmlOffset = sizeof(wtscript_header);
         xmlSize = header.xmlsize;
-        blobSize = header.blobsize;
-
+        size_t blobSize = header.blobsize;
         const size_t bytesAfterHeader = fileSize - xmlOffset;
+
         if (xmlSize > bytesAfterHeader || blobSize > bytesAfterHeader - xmlSize)
         {
             storage->reportError("Wavetable script file is truncated or corrupt.",
@@ -588,7 +614,8 @@ LuaWTEvaluator::parseWtscript(const fs::path &filename, SurgeStorage *storage,
             return std::nullopt;
         }
 
-        blobOffset = xmlOffset + xmlSize;
+        const void *compData = fileData.data() + xmlOffset + xmlSize;
+        loadWtscriptSnapshots(compData, blobSize, oscdata);
     }
 
     // Parse only the XML portion
@@ -641,80 +668,6 @@ LuaWTEvaluator::parseWtscript(const fs::path &filename, SurgeStorage *storage,
     data.script = Surge::Storage::base64_decode(b64script);
     data.nframes = nframes;
     data.res_base = res_base;
-
-    // Snapshots: metadata lives in XML; float data comes from the compressed trailing blob
-    auto sn = TINYXML_SAFE_TO_ELEMENT(wtscript->FirstChildElement("snapshots"));
-    if (sn && blobSize > 0)
-    {
-        auto validSnapshot = [](TiXmlElement *child, int &slot, int &nframes, int &nsamples) {
-            if (child->QueryIntAttribute("slot", &slot) != TIXML_SUCCESS ||
-                child->QueryIntAttribute("frames", &nframes) != TIXML_SUCCESS ||
-                child->QueryIntAttribute("samples", &nsamples) != TIXML_SUCCESS)
-                return false;
-            return slot >= 0 && slot < n_wt_snapshots && nframes > 0 && nframes <= max_subtables &&
-                   nsamples > 0 && nsamples <= max_wtable_size;
-        };
-
-        size_t expectedFloats = 0;
-        for (auto child = sn->FirstChildElement("snapshot"); child;
-             child = child->NextSiblingElement("snapshot"))
-        {
-            int slot, nframes, nsamples;
-            if (validSnapshot(child, slot, nframes, nsamples))
-                expectedFloats += static_cast<size_t>(nframes) * nsamples;
-        }
-
-        if (expectedFloats > 0)
-        {
-            const std::uint8_t *compData =
-                reinterpret_cast<const std::uint8_t *>(fileData.data() + blobOffset);
-            const auto decompressedSize = ZSTD_getFrameContentSize(compData, blobSize);
-            if (decompressedSize == ZSTD_CONTENTSIZE_ERROR ||
-                decompressedSize == ZSTD_CONTENTSIZE_UNKNOWN ||
-                decompressedSize != expectedFloats * sizeof(float))
-            {
-                storage->reportError("Snapshot blob size mismatch; snapshots not loaded.",
-                                     "Wavetable Script Load Warning");
-            }
-            else
-            {
-                std::vector<float> decompressed(expectedFloats);
-                const size_t result =
-                    ZSTD_decompress(decompressed.data(), decompressedSize, compData, blobSize);
-                if (ZSTD_isError(result) || result != decompressedSize)
-                {
-                    storage->reportError(
-                        "Failed to decompress snapshot blob; snapshots not loaded.",
-                        "Wavetable Script Load Warning");
-                }
-                else
-                {
-                    size_t floatOffset = 0;
-                    for (auto child = sn->FirstChildElement("snapshot"); child;
-                         child = child->NextSiblingElement("snapshot"))
-                    {
-                        int slot, nframes, nsamples;
-                        if (!validSnapshot(child, slot, nframes, nsamples))
-                            continue;
-
-                        wt_header wh{};
-                        wh.n_samples = nsamples;
-                        wh.n_tables = nframes;
-                        wh.flags = 0;
-
-                        oscdata->wtSnapshots[slot] = std::make_unique<Wavetable>();
-                        oscdata->wtSnapshots[slot]->BuildWT(decompressed.data() + floatOffset, wh,
-                                                            false);
-                        if (!oscdata->wtSnapshots[slot]->everBuilt)
-                        {
-                            oscdata->wtSnapshots[slot].reset();
-                        }
-                        floatOffset += static_cast<size_t>(nframes) * nsamples;
-                    }
-                }
-            }
-        }
-    }
 
     return data;
 #else
