@@ -909,6 +909,10 @@ class SurgeGUIEditor : public Surge::GUI::IComponentTagValue::Listener,
         NEVER = 100
     };
 
+    // sometimes we need to return focus to a specific component after an Alert dialog is dismissed
+    // currently used by KeyBindingsOverlay
+    juce::Component::SafePointer<juce::Component> componentToFocusAfterAlertDismissal{nullptr};
+
     // Return whether we called the OK action automatically or not
     bool promptForOKCancelWithDontAskAgain(const ::std::string &title, const std::string &msg,
                                            Surge::Storage::DefaultKey dontAskAgainKey,
