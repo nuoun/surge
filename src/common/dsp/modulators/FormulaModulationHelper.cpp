@@ -256,7 +256,9 @@ end
 
             addn("tempo", s.tempo);
             addn("songpos", s.songpos);
-            addb("released", s.released);
+            addn("pb_range_up", s.pbrange_up);
+            addn("pb_range_dn", s.pbrange_dn);
+            addn("mpe_bendrange", s.mpebendrange);
 
             if (s.isVoice)
             {
@@ -264,15 +266,19 @@ end
                 addi("key", s.key);
                 addi("velocity", s.velocity);
                 addi("voice_id", s.voiceOrderAtCreate);
+
                 addn("tuned_key", s.tunedkey);
+
+                addb("released", s.released);
             }
 
-            // Fake a voice count of one for display calls
-            int voiceCount = storage->activeVoiceCount;
-            if (voiceCount == 0 && s.is_display)
-                voiceCount = 1;
-            addi("voice_count", voiceCount);
+            addi("voice_count", storage->activeVoiceCount + 1);
+            addi("poly_limit", s.polylimit);
+            addi("scene_mode", s.scenemode);
+            addi("play_mode", s.polymode);
+            addi("split_point", s.splitpoint);
 
+            addb("mpe_enabled", s.mpeenabled);
             addb("is_voice", s.isVoice);
             addb("is_rendering_to_ui", s.is_display);
             addb("clamp_output", true);
@@ -526,12 +532,6 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
     addi("intphase", phaseIntPart);
     addi("cycle", phaseIntPart); // Alias cycle for intphase
 
-    // Fake a voice count of one for display calls
-    int voiceCount = storage->activeVoiceCount;
-    if (voiceCount == 0 && s->is_display)
-        voiceCount = 1;
-    addi("voice_count", voiceCount);
-
     addn("delay", s->del);
     addn("decay", s->dec);
     addn("attack", s->a);
@@ -559,13 +559,14 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
     addn("lowest_key", s->lowest_key);
     addn("highest_key", s->highest_key);
     addn("latest_key", s->latest_key);
+    addn("mpe_bendrange", s->mpebendrange);
 
+    addi("voice_count", storage->activeVoiceCount + 1);
     addi("poly_limit", s->polylimit);
     addi("scene_mode", s->scenemode);
     addi("play_mode", s->polymode);
     addi("split_point", s->splitpoint);
 
-    addb("released", s->released);
     addb("is_rendering_to_ui", s->is_display);
     addb("mpe_enabled", s->mpeenabled);
 
@@ -582,7 +583,6 @@ void valueAt(int phaseIntPart, float phaseFracPart, SurgeStorage *storage,
         addn("tuned_key", s->tunedkey);
         addn("poly_at", s->polyat);
         addn("mpe_bend", s->mpebend);
-        addn("mpe_bendrange", s->mpebendrange);
         addn("mpe_timbre", s->mpetimbre);
         addn("mpe_pressure", s->mpepressure);
 
